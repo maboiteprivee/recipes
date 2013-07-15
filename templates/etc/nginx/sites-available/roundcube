@@ -1,0 +1,17 @@
+server {
+        listen          80;
+        server_name     {{ nginx_server_name }};
+        server_name_in_redirect off;
+        access_log      /var/log/nginx/roundcube.access_log;
+        error_log       /var/log/nginx/roundcube.error_log;
+ 
+        index index.php index.html index.htm default.html default.htm;
+        root /var/www/roundcube;
+        location ~ .*\.php$
+        {
+                include /etc/nginx/fastcgi_params;
+                fastcgi_pass unix:/var/run/php5-fpm.sock;
+                fastcgi_index index.php;
+                fastcgi_param SCRIPT_FILENAME /var/www/roundcube/$fastcgi_script_name;
+        }
+}
