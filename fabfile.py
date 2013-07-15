@@ -14,6 +14,7 @@ ROUNDCUBE_URL = 'http://downloads.sourceforge.net/project/roundcubemail/roundcub
 DOMAIN = 'phramboise.fr'
 NICE_NAME = 'Phramboise'
 USERS = (['alexandre', 'password'])
+IF_ETH = 'eth0'
 
 def vagrant():
   "Use Vagrant for testing"
@@ -37,14 +38,23 @@ def _upload_templates(files, clean=True):
             file_ensure(myfile['filename'], owner=user, group=group)
 
 def setup():
-    puts(green('Installing base packages...'))
-    base_packages() 
-    puts(green('Installing Roundcube...'))
-    roundcube()
-    puts(green('Configuring Nginx...'))
-    nginx()
-    puts(green('Creating users...'))
-    users()
+    try:
+        puts(green('Installing base packages...'))
+        base_packages() 
+        puts(green('Configuring base system...'))
+        system_config()
+        puts(green('Creating users...'))
+        users()
+        puts(green('Installing Roundcube...'))
+        roundcube()
+        puts(green('Configuring Nginx...'))
+        nginx()
+        puts(green('Configuring Dovecot...'))
+        dovecot()
+        puts(green('Configuring Postfix...'))
+        postfix()
+    except Exception, e:
+        puts(red('Something went wrong : %s' % e))
 
 def base_packages():
     base_tools = ['vim', 'git-core', 'build-essential']
@@ -54,6 +64,17 @@ def base_packages():
     package_update()
     for p in base_tools+web+mail :
         package_ensure(p)
+
+def system_config():
+    with mode_sudo():
+        file_write('/etc/mailname', '%s\n' % DOMAIN)
+        ip_addr = run("/sbin/ifconfig %s | grep 'inet addr:' | cut -d: -f2 | awk '{ print $1}'" % IF_ETH)
+        hline = '%s\t%s' % (ip_addr, DOMAIN)
+        file_update('/etc/hosts', lambda x: text_ensure_line(x, hline))
+
+def users():
+    for user in USERS:
+        user_ensure(user[0], passwd=user[1])
 
 def roundcube():
     rc_filename = ROUNDCUBE_URL.split('/')[-1]
@@ -89,7 +110,7 @@ def roundcube():
 def nginx():
     with mode_sudo():
         file_unlink('/etc/nginx/sites-enabled/default')
-        file_unlink('/etc/nginx/sites-available/roundcube')
+        # file_unlink('/etc/nginx/sites-available/roundcube')
         context = {
             'nginx_server_name': DOMAIN,
         }
@@ -103,6 +124,29 @@ def nginx():
         upstart_ensure('nginx')
         upstart_ensure('php5-fpm')
 
-def users():
-    for user in USERS:
-        user_ensure(user[0], passwd=user[1])
+def dovecot():
+    with mode_sudo():
+        context = {}
+        conf_files = [
+            {'filename': '/etc/dovecot/dovecot.conf', 'context': context, 
+                'user': 'root', 'group': 'root'},
+            {'filename': '/etc/dovecot/conf.d/10-auth.conf', 'context': context, 
+                'user': 'root', 'group': 'root'},
+            {'filename': '/etc/dovecot/conf.d/10-mail.conf', 'context': context, 
+                'user': 'root', 'group': 'root'},
+        ]
+        _upload_templates(conf_files)
+        upstart_ensure('dovecot')
+
+def postfix():
+    with mode_sudo():
+        context = {
+            'postfix_myhostname': DOMAIN,
+            'postfix_mydestination': DOMAIN
+        }
+        conf_files = [
+            {'filename': '/etc/postfix/main.cf', 'context': context, 
+                'user': 'root', 'group': 'root'},
+        ]
+        _upload_templates(conf_files)
+        upstart_ensure('postfix')
